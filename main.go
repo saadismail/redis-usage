@@ -1,20 +1,22 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"github.com/go-redis/redis"
 	"log"
-	"gopkg.in/cheggaaa/pb.v1"
+	"sort"
 	"strings"
 	"time"
-	"sort"
+
+	"github.com/cheggaaa/pb"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
 	flagHost      string
 	flagPort      int
-    flagPassword  string
+	flagPassword  string
 	flagDB        int
 	flagMatch     string
 	flagCount     int
@@ -58,7 +60,7 @@ func (items prefixItems) sortedSlice() []*prefixItem {
 
 type prefixItem struct {
 	count         int
-	totalBytes    int
+	totalBytes    int64
 	numberOfDumps int
 	prefix        string
 }
@@ -79,12 +81,12 @@ func formatSize(size int64) string {
 	switch {
 	case size < 1024:
 		return fmt.Sprintf("%d bytes", size)
-	case size < 1024 * 1024:
-		return fmt.Sprintf("%.3g KB", float64(size) / 1024)
-	case size < 1024 * 1024 * 1024:
-		return fmt.Sprintf("%.3g MB", float64(size) / (1024 * 1024))
+	case size < 1024*1024:
+		return fmt.Sprintf("%.3g KB", float64(size)/1024)
+	case size < 1024*1024*1024:
+		return fmt.Sprintf("%.3g MB", float64(size)/(1024*1024))
 	default:
-		return fmt.Sprintf("%.3g GB", float64(size) / (1024 * 1024 * 1024))
+		return fmt.Sprintf("%.3g GB", float64(size)/(1024*1024*1024))
 	}
 }
 
@@ -99,10 +101,11 @@ func main() {
 	parseCLIArgs()
 
 	client := newClient()
+	ctx := context.Background()
 
-	checkServerIsAlive(client)
+	checkServerIsAlive(client, ctx)
 
-	dbsize := getTotalKeys(client)
+	dbsize := getTotalKeys(client, ctx)
 	if flagLimit > 0 && flagLimit < dbsize {
 		dbsize = flagLimit
 	}
@@ -116,7 +119,7 @@ func main() {
 	prefixes = prefixItems{}
 
 	for {
-		keys, cursor, err = client.Scan(cursor, flagMatch, int64(flagCount)).Result()
+		keys, cursor, err = client.Scan(ctx, cursor, flagMatch, int64(flagCount)).Result()
 		check(err)
 
 		for _, key := range keys {
@@ -130,10 +133,10 @@ func main() {
 			prefixes[prefix].count += 1
 
 			if prefixes[prefix].numberOfDumps < flagDumpLimit {
-				result, err := client.Dump(key).Result()
+				result, err := client.MemoryUsage(ctx, key).Result()
 				check(err)
 
-				prefixes[prefix].totalBytes += len(result)
+				prefixes[prefix].totalBytes += result
 				prefixes[prefix].numberOfDumps += 1
 			}
 		}
@@ -141,11 +144,11 @@ func main() {
 		bar.Add(len(keys))
 
 		if cursor == 0 {
-			break;
+			break
 		}
 
 		if flagLimit > 0 && bar.Get() >= int64(flagLimit) {
-			break;
+			break
 		}
 
 		if flagSleep > 0 {
@@ -172,7 +175,7 @@ func printResults() {
 
 	for i, data := range prefixes.sortedSlice() {
 		if flagTop > 0 && i >= flagTop {
-			break;
+			break
 		}
 
 		if data.numberOfDumps > 0 {
@@ -201,18 +204,18 @@ func getPrefix(key string) string {
 
 	parts := strings.Split(key, flagSeparator)
 
-	return strings.Join(parts[:len(parts)-1], flagSeparator) + flagSeparator + "*"
+	return strings.Join(parts[:1], flagSeparator) + flagSeparator + "*"
 }
 
-func getTotalKeys(client *redis.Client) int {
-	dbsize, err := client.DbSize().Result()
+func getTotalKeys(client *redis.Client, ctx context.Context) int {
+	dbsize, err := client.DBSize(ctx).Result()
 	check(err)
 
 	return int(dbsize)
 }
 
-func checkServerIsAlive(client *redis.Client) {
-	_, err := client.Ping().Result()
+func checkServerIsAlive(client *redis.Client, ctx context.Context) {
+	_, err := client.Ping(ctx).Result()
 	check(err)
 }
 
@@ -221,7 +224,7 @@ func newClient() *redis.Client {
 
 	return redis.NewClient(&redis.Options{
 		Addr:        addr,
-        Password:    flagPassword,
+		Password:    flagPassword,
 		DB:          flagDB,
 		ReadTimeout: time.Duration(flagTimeout) * time.Millisecond,
 	})
@@ -234,11 +237,11 @@ func parseCLIArgs() {
 	flag.IntVar(&flagDB, "db", 0, "Redis server database.")
 	flag.StringVar(&flagMatch, "match", "", "SCAN MATCH option.")
 	flag.IntVar(&flagCount, "count", 10, "SCAN COUNT option.")
-	flag.IntVar(&flagSleep, "sleep", 0, "Number of milliseconds to wait " +
+	flag.IntVar(&flagSleep, "sleep", 0, "Number of milliseconds to wait "+
 		"between reading keys.")
 	flag.IntVar(&flagLimit, "limit", 0, "Limit the number of keys scanned.")
 	flag.IntVar(&flagTop, "top", 0, "Only show the top number of prefixes.")
-	flag.StringVar(&flagPrefixes, "prefixes", "", "You may specify custom " +
+	flag.StringVar(&flagPrefixes, "prefixes", "", "You may specify custom "+
 		"prefixes (comma-separated).")
 	flag.IntVar(&flagDumpLimit, "dump-limit", 0, "Use DUMP to get key sizes "+
 		"(much slower). If this is zero then DUMP will not be used, "+

@@ -1,15 +1,15 @@
 module github.com/elliotchance/redis-usage
 
-go 1.14
+go 1.24.5
 
 require (
-	github.com/go-redis/redis v6.12.0+incompatible
-	github.com/labstack/gommon v0.2.2-0.20180613044413-d6898124de91
-	github.com/mattn/go-colorable v0.0.9
-	github.com/mattn/go-isatty v0.0.3
-	github.com/mattn/go-runewidth v0.0.2
-	github.com/valyala/bytebufferpool v1.0.0
-	github.com/valyala/fasttemplate v0.0.0-20170224212429-dcecefd839c4
-	golang.org/x/sys v0.0.0-20180622082034-63fc586f45fe
-	gopkg.in/cheggaaa/pb.v1 v1.0.25
+	github.com/cheggaaa/pb v1.0.29
+	github.com/redis/go-redis/v9 v9.7.0
+)
+
+require (
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/mattn/go-runewidth v0.0.4 // indirect
+	golang.org/x/sys v0.0.0-20191026070338-33540a1f6037 // indirect
 )
